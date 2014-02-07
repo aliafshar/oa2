@@ -30,4 +30,4 @@ helpstrap: env install
 	./${VE}/bin/oa2 -h
 
 test: install
-	./${VE}/bin/py.test tests
+	./${VE}/bin/py.test test_oa2.py
