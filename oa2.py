@@ -44,6 +44,7 @@ class IHttpClient(object):
 
 
 class RequestsHttpClient(IHttpClient):
+  """Uses requests."""
 
   NAME = 'requests'
 
@@ -63,17 +64,11 @@ class UrllibHttpClient(IHttpClient):
     return json.load(resp)
 
 
-class Httplib2HttpClient():
-
-  NAME = 'httplib2'
-
-
 class HttpClient(object):
 
   available_clients = {
       UrllibHttpClient.NAME: UrllibHttpClient,
       RequestsHttpClient.NAME: RequestsHttpClient,
-      Httplib2HttpClient.NAME: Httplib2HttpClient,
   }
 
   def set_client_type(self, client_type, **config):
