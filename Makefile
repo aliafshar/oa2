@@ -16,18 +16,25 @@
 
 VE=env
 
+test: install
+	./${VE}/bin/py.test test_oa2.py
+
+veryclean: clean
+	rm -rf ${VE}
+
 clean:
-	rm -rf ${VE} build dist oa2.egg-info *.pyc __pycache__
+	rm -rf build dist oa2.egg-info *.pyc __pycache__
+
+doc: env
+	./${VE}/bin/sphinx-build -a docs/source build/docs
 
 install: env
 	./${VE}/bin/pip install .
 
 env:
 	virtualenv ${VE}
-	./${VE}/bin/pip install pytest
+	./${VE}/bin/pip install pytest sphinx sphinxjp.themes.basicstrap
 
 helpstrap: env install
 	./${VE}/bin/oa2 -h
 
-test: install
-	./${VE}/bin/py.test test_oa2.py

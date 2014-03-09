@@ -21,6 +21,7 @@ import oa2
 setup_params = dict(
   name = 'oa2',
   description = oa2.__doc__.splitlines()[0],
+  version = oa2.OA2_VERSION,
   author = 'Ali Afshar',
   author_email = 'afshar@google.com',
   url = 'http://github.com/aliafshar/oa2',
