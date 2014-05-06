@@ -36,51 +36,6 @@ import webbrowser
 OA2_VERSION = '0.0'
 
 
-class IHttpClient(object):
-  def post(self, uri, data, **kw):
-    raise NotImplementedError
-
-
-class RequestsHttpClient(IHttpClient):
-  """Uses requests."""
-
-  NAME = 'requests'
-
-  def post(self, uri, data, **kw):
-    import requests
-    resp = requests.post(uri, data, **kw)
-    return resp.content
-
-
-class UrllibHttpClient(IHttpClient):
-  """Uses urllib from the Python stdlib."""
-
-  NAME = 'urllib'
-
-  def post(self, uri, data, **kw):
-    resp = urllib.urlopen(uri, urllib.urlencode(data))
-    return json.load(resp)
-
-
-class HttpClient(object):
-
-  available_clients = {
-      UrllibHttpClient.NAME: UrllibHttpClient,
-      RequestsHttpClient.NAME: RequestsHttpClient,
-  }
-
-  def set_client_type(self, client_type, **config):
-      client_type = self.available_clients[client_type]
-      return client_type(**config)
-
-  @classmethod
-  def using_urllib(cls):
-    self = cls()
-    self.set_client_type(UrllibHttpClient.NAME)
-    return self
-
-  def post(self, uri, data, **kw):
-    return self.client.post(uri, data, **kw)
 
 
 class Config(object):
@@ -96,32 +51,47 @@ class Config(object):
     self.client_config = client_config or self.client_config
 
 
-class ClientConfig(object):
-  """Base OAuth2 client configuration."""
+class BaseClientConfig(object):
 
+  # Always
   scope = None
   client_id = None
+  grant_type = None
+
+  # User
   client_secret = None
   redirect_uri = None
   access_type = None
   approval_prompt = None
-  grant_type = None
   state_factory = None
 
-  def __init__(self, scope=None, client_id=None, client_secret=None,
-               redirect_uri=None, access_type=None, approval_prompt=None,
-               grant_type=None, state_factory=None):
-    self.client_id = client_id or self.client_id
-    self.client_secret = client_secret or self.client_secret
-    self.redirect_uri = redirect_uri or self.redirect_uri
-    self.scope = scope or self.scope
-    self.state_factory = state_factory or self.state_factory
-    access_type = access_type or self.access_type
-    approval_prompt=approval_prompt or self.approval_prompt
-    grant_type=grant_type or self.grant_type
+  # Service account
+  client_email = None
+  grant_type = 'urn:ietf:params:oauth:grant-type:jwt-bearer'
+  private_key = None
+  service_account_name = None
+
+  def __init__(self, **kw):
+    for k, v in kw.items():
+      setattr(self, k, v)
+
+class UserConfig(BaseClientConfig):
+
+  grant_type = 'authorization_code'
 
 
-class WebServerAppConfig(ClientConfig):
+class ServiceAccountConfig(BaseClientConfig):
+
+  grant_type = 'urn:ietf:params:oauth:grant-type:jwt-bearer'
+
+  @classmethod
+  def for_account(cls, email, key):
+    c = cls()
+    c.assertion = 1
+    return c
+
+
+class WebServerAppConfig(UserConfig):
   """OAuth2 client configuration suitable for web servers."""
   approval_prompt = 'auto'
   access_type = 'offline'
@@ -216,7 +186,7 @@ def get_auth_uri(auth_service, client_id, scope, redirect_uri, response_type,
   return '?'.join([auth_service, urllib.urlencode(params)])
 
 
-class OAuth2(object):
+class UserOAuth2(object):
   """A single unit of OAuth2.
 
   A dance can be created for a configuration and used once for performing
@@ -266,6 +236,12 @@ class OAuth2(object):
 
   def default_state_factory(self):
     return str(uuid.uuid4())
+
+
+class RobotOAuth2(object):
+
+  def get_token(self):
+    pass
 
 
 class LocalRedirectHandler(BaseHTTPServer.BaseHTTPRequestHandler):
