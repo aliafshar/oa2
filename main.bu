@@ -36,7 +36,7 @@ install: env
 
 env:
 	virtualenv ${VE}
-	./${VE}/bin/pip install pytest sphinx sphinxjp.themes.basicstrap
+	./${VE}/bin/pip install pytest sphinx sphinxjp.themes.basicstrap requests
 
 helpstrap: env install
 	./${VE}/bin/oa2 -h

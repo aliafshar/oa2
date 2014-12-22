@@ -28,6 +28,7 @@ setup_params = dict(
   py_modules = ['oa2'],
   entry_points = {'console_scripts': ['oa2 = oa2:sys_main']},
   use_2to3 = True,
+  install_requires = ['requests'],
 )
 
 setup(**setup_params)
