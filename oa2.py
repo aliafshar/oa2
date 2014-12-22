@@ -26,6 +26,7 @@ Usage:
 import argparse
 import BaseHTTPServer
 import json
+import requests
 import sys
 import urllib
 import urlparse
@@ -78,6 +79,8 @@ class BaseClientConfig(object):
 class UserConfig(BaseClientConfig):
 
   grant_type = 'authorization_code'
+
+
 
 
 class ServiceAccountConfig(BaseClientConfig):
@@ -137,8 +140,25 @@ VALID_ACCESS_TYPES = set(['online', 'offline'])
 VALID_APPROVAL_PROMPTS = set(['force', 'auto'])
 
 
-def get_token(code, token_service_uri, client_id, client_secret, redirect_uri,
-              grant_type, http_client=None):
+class Token(object):
+
+  def __init__(self, access_token, refresh_token=None, oauth=None):
+    self.oauth = oauth
+    self.access_token = access_token
+    self.refresh_token = refresh_token
+
+  @classmethod
+  def load(cls, f, oauth=None):
+    d = json.load(f)
+    return cls(d['access_token'], d.get('refresh_token'), oauth)
+
+  def dump(self, f):
+    json.dump({'access_token': self.access_token, 'refresh_token':
+      self.refresh_token}, f)
+
+
+def get_token(code, token_service, client_id, client_secret, redirect_uri,
+              grant_type):
   """Fetches an OAuth 2 token."""
   data = {
       'code': code,
@@ -148,11 +168,8 @@ def get_token(code, token_service_uri, client_id, client_secret, redirect_uri,
       'grant_type': grant_type,
   }
   # Get the default http client
-  if http_client == None:
-    http_client = UrllibHttpClient()
-  resp = http_client.post(token_service_uri, data, verify=False)
-  return resp
-
+  resp = requests.post(token_service, data, verify=False)
+  return resp.json()
 
 def get_auth_uri(auth_service, client_id, scope, redirect_uri, response_type,
                  state, access_type, approval_prompt):
@@ -185,6 +202,18 @@ def get_auth_uri(auth_service, client_id, scope, redirect_uri, response_type,
   }
   return '?'.join([auth_service, urllib.urlencode(params)])
 
+def refresh_token(token_service, refresh_token, client_id, client_secret):
+  """Refreshes a token."""
+  data = {
+    'client_id': client_id,
+    'client_secret': client_secret,
+    'refresh_token': refresh_token,
+    'grant_type': 'refresh_token',
+  }
+  resp = requests.post(token_service, data)
+  print resp, 'refreshing', resp.json()
+  return resp.json()
+
 
 class UserOAuth2(object):
   """A single unit of OAuth2.
@@ -194,7 +223,6 @@ class UserOAuth2(object):
   verified to ensure safety. To reuse a dance, you must pass a state manually to
   get_auth_uri.
   """
-  http_client = None
 
   def __init__(self, client_config=None, service_config=None):
     self.client_config = client_config
@@ -219,7 +247,7 @@ class UserOAuth2(object):
 
   def get_token(self, code, token_service=None, client_id=None,
                 client_secret=None, redirect_uri=None, grant_type=None):
-    return get_token(
+    t = get_token(
         code,
         token_service or self.service_config.token_uri,
         client_id or self.client_config.client_id,
@@ -227,6 +255,17 @@ class UserOAuth2(object):
         redirect_uri or self.client_config.redirect_uri,
         grant_type or self.client_config.grant_type
     )
+    return Token(t['access_token'], t.get('refresh_token'), self)
+
+  def refresh_token(self, token, token_service=None, client_id=None,
+      client_secret=None):
+    t = refresh_token(
+      token_service or self.service_config.token_uri,
+      token.refresh_token,
+      client_id or self.client_config.client_id,
+      client_secret or self.client_config.client_secret,
+    )
+    return Token(t['access_token'], token.refresh_token, self)
 
   def get_state(self):
     if self.client_config.state_factory:
@@ -294,6 +333,52 @@ class WizardClientConfig(LocalWebServerAppConfig):
   client_secret = 'DjLs44AfnAv_eh5zw49Yq7LN'
 
 
+class CredentialsAuthorizer(requests.auth.AuthBase):
+  """Uses oauth2client credentials to authorize requests requests."""
+ 
+  def __init__(self, token):
+    self.token = token
+    self.retries = 3
+
+  def handle_response(self, response, **kw):
+    if (self.token.refresh_token and response.status_code == 401 and self.retries
+        and self.token.oauth):
+      self.token = self.token.oauth.refresh_token(self.token)
+      self.retries -= 1
+      r = response.request.copy()
+      self(r)
+      return response.connection.send(r)
+    else:
+      return response
+ 
+  def __call__(self, request):
+    """Called for every request.
+
+    We register the response callback, and inject the authorization header.
+    """
+    request.register_hook('response', self.handle_response)
+    request.headers['Authorization'] = 'Bearer {}'.format(self.token.access_token)
+    return request
+
+def save(token, filename):
+  with open(filename, 'w') as f:
+    token.dump(f)
+
+def load(filename, oauth=None):
+  try:
+    with open(filename) as f:
+      return Token.load(f, oauth=oauth)
+  except IOError:
+    return None
+    
+def load_or_get(config, filename):
+  oa = UserOAuth2(config)
+  token = load(filename, oa)
+  if not token:
+    token = run_local(oa)
+    save(token, filename)
+  return token
+
 def main(argv):
   """Entry point for command line script to perform OAuth 2.0."""
   p = argparse.ArgumentParser()
@@ -302,8 +387,6 @@ def main(argv):
   p.add_argument('-i', '--client-id')
   p.add_argument('-x', '--client-secret')
   p.add_argument('-r', '--redirect-uri')
-  p.add_argument('-c', '--http-client', default='requests',
-                 choices=HttpClient.available_clients)
   p.add_argument('-f', '--client-secrets')
   args = p.parse_args(argv)
   client_args = (args.client_id, args.client_secret, args.client_id)
@@ -319,14 +402,12 @@ def main(argv):
     return 1
   config = WizardClientConfig()
   config.scope = ' '.join(args.scope)
-  print(run_local(OAuth2(config))['access_token'])
+  print(run_local(UserOAuth2(config))['access_token'])
   return 0
-
 
 def sys_main():
   """Run main with system arguments."""
   sys.exit(main(sys.argv[1:]))
-
 
 if __name__ == '__main__':
   sys_main()

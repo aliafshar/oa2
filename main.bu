@@ -16,6 +16,9 @@
 
 VE=env
 
+lint:
+  pylint --rcfile=tools/pylintrc oa2.py
+
 test: install
 	./${VE}/bin/py.test test_oa2.py
 
